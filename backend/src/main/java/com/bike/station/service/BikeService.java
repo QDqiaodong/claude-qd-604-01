@@ -16,12 +16,14 @@ import com.bike.station.common.BizException;
 import com.bike.station.domain.Bike;
 import com.bike.station.domain.BikeDict;
 import com.bike.station.domain.ClearanceDict;
+import com.bike.station.domain.InspectionDict;
 import com.bike.station.domain.Pile;
 import com.bike.station.domain.Station;
 import com.bike.station.dto.BikeDtos;
 import com.bike.station.dto.Views;
 import com.bike.station.repository.BikeRepository;
 import com.bike.station.repository.ClearanceOrderRepository;
+import com.bike.station.repository.InspectionBatchRepository;
 import com.bike.station.repository.PileRepository;
 import com.bike.station.repository.RentalRepository;
 import com.bike.station.repository.StationRepository;
@@ -47,6 +49,8 @@ public class BikeService {
     private final WorkOrderRepository workOrderRepository;
     private final ClearanceOrderRepository clearanceOrderRepository;
     private final SlotService slotService;
+    private final InspectionService inspectionService;
+    private final InspectionBatchRepository inspectionBatchRepository;
 
     public BikeService(BikeRepository bikeRepository,
                        PileRepository pileRepository,
@@ -54,7 +58,9 @@ public class BikeService {
                        RentalRepository rentalRepository,
                        WorkOrderRepository workOrderRepository,
                        ClearanceOrderRepository clearanceOrderRepository,
-                       SlotService slotService) {
+                       SlotService slotService,
+                       InspectionService inspectionService,
+                       InspectionBatchRepository inspectionBatchRepository) {
         this.bikeRepository = bikeRepository;
         this.pileRepository = pileRepository;
         this.stationRepository = stationRepository;
@@ -62,6 +68,8 @@ public class BikeService {
         this.workOrderRepository = workOrderRepository;
         this.clearanceOrderRepository = clearanceOrderRepository;
         this.slotService = slotService;
+        this.inspectionService = inspectionService;
+        this.inspectionBatchRepository = inspectionBatchRepository;
     }
 
     // ------------------------------------------------------------------
@@ -98,6 +106,12 @@ public class BikeService {
         long pileTotal = pileRepository.count();
         long pileIdle = pileRepository.countByStatus(BikeDict.PILE_IDLE);
         long pileOccupied = pileRepository.countByStatus(BikeDict.PILE_OCCUPIED);
+        InspectionService.StationCounters global = inspectionService.stationCountersMap().values().stream()
+                .reduce(new InspectionService.StationCounters(0, 0, 0),
+                        (a, b) -> new InspectionService.StationCounters(
+                                a.pendingIsolated() + b.pendingIsolated(),
+                                a.isolated() + b.isolated(),
+                                a.pendingRecheck() + b.pendingRecheck()));
         return new Views.Overview(
                 bikeRepository.count(),
                 bikeRepository.countByStatus(BikeDict.BIKE_PILE),
@@ -114,7 +128,11 @@ public class BikeService {
                 workOrderRepository.countByStatus(BikeDict.ORDER_REPORTED),
                 workOrderRepository.countByStatus(BikeDict.ORDER_ASSIGNED),
                 clearanceOrderRepository.countByStatusIn(ClearanceDict.ORDER_ACTIVE),
-                clearanceOrderRepository.countByStatusIn(List.of(ClearanceDict.ORDER_PARTIALLY_BLOCKED)));
+                clearanceOrderRepository.countByStatusIn(List.of(ClearanceDict.ORDER_PARTIALLY_BLOCKED)),
+                inspectionBatchRepository.countByStatus(InspectionDict.BATCH_IN_PROGRESS),
+                global.pendingIsolated(),
+                global.isolated(),
+                global.pendingRecheck());
     }
 
     // ------------------------------------------------------------------

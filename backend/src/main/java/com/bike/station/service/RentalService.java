@@ -131,7 +131,8 @@ public class RentalService {
                 bike.getId(), BikeDict.RENTAL_RIDING);
 
         slotService.assertStationOpen(station, "借车");
-        slotService.assertPileUsable(pile, "借车");
+        // 借车只拦停用/已隔离：待隔离桩上的车仍要允许骑走，车离桩后自动转已隔离
+        slotService.assertPileBorrowable(pile, "借车");
 
         if (!BikeDict.BIKE_PILE.equals(bike.getStatus())) {
             throw new BizException("借车失败：车辆 " + bike.getCode() + " 当前状态为「"

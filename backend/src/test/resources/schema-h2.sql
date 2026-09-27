@@ -32,7 +32,7 @@ CREATE TABLE pile (
     id         BIGINT      NOT NULL AUTO_INCREMENT,
     station_id BIGINT      NOT NULL,
     pile_no    VARCHAR(16) NOT NULL,
-    status     VARCHAR(16) NOT NULL,
+    status     VARCHAR(24) NOT NULL,
     created_at DATETIME    NOT NULL,
     PRIMARY KEY (id),
     CONSTRAINT uk_pile_station_no UNIQUE (station_id, pile_no)
@@ -166,3 +166,76 @@ CREATE TABLE clearance_item (
 );
 CREATE INDEX idx_clearance_item_status ON clearance_item (clearance_id, item_status);
 CREATE INDEX idx_clearance_item_bike ON clearance_item (bike_id);
+
+-- ---- 模块六：桩位巡检 ----
+CREATE TABLE inspection_batch (
+    id            BIGINT       NOT NULL AUTO_INCREMENT,
+    batch_no      VARCHAR(32)  NOT NULL,
+    station_id    BIGINT       NOT NULL,
+    status        VARCHAR(16)  NOT NULL,
+    total_count   INT          NOT NULL,
+    checked_count INT          NOT NULL,
+    fault_count   INT          NOT NULL,
+    remark        VARCHAR(255),
+    created_by    VARCHAR(32)  NOT NULL,
+    created_at    DATETIME     NOT NULL,
+    completed_at  DATETIME,
+    PRIMARY KEY (id),
+    CONSTRAINT uk_inspection_batch_no UNIQUE (batch_no)
+);
+CREATE INDEX idx_inspection_station ON inspection_batch (station_id);
+CREATE INDEX idx_inspection_status ON inspection_batch (status);
+
+CREATE TABLE inspection_item (
+    id                 BIGINT       NOT NULL AUTO_INCREMENT,
+    batch_id           BIGINT       NOT NULL,
+    pile_id            BIGINT       NOT NULL,
+    pile_no            VARCHAR(16)  NOT NULL,
+    snapshot_occupied  TINYINT      NOT NULL,
+    snapshot_bike_id   BIGINT,
+    snapshot_bike_code VARCHAR(32),
+    result             VARCHAR(16)  NOT NULL,
+    lock_status        VARCHAR(16)  NOT NULL DEFAULT 'UNKNOWN',
+    power_status       VARCHAR(16)  NOT NULL DEFAULT 'UNKNOWN',
+    comm_status        VARCHAR(16)  NOT NULL DEFAULT 'UNKNOWN',
+    fault_level        VARCHAR(16),
+    fault_desc         VARCHAR(255),
+    isolated_mode      VARCHAR(24),
+    checker_name       VARCHAR(32),
+    checked_at         DATETIME,
+    rev                INT          NOT NULL DEFAULT 0,
+    created_at         DATETIME     NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT uk_inspection_item UNIQUE (batch_id, pile_id)
+);
+CREATE INDEX idx_inspection_item_pile ON inspection_item (pile_id);
+
+CREATE TABLE fault_handling (
+    id             BIGINT       NOT NULL AUTO_INCREMENT,
+    handling_no    VARCHAR(32)  NOT NULL,
+    pile_id        BIGINT       NOT NULL,
+    station_id     BIGINT       NOT NULL,
+    batch_id       BIGINT       NOT NULL,
+    item_id        BIGINT       NOT NULL,
+    bike_id        BIGINT,
+    fault_level    VARCHAR(16)  NOT NULL,
+    fault_desc     VARCHAR(255),
+    status         VARCHAR(24)  NOT NULL,
+    handler_name   VARCHAR(32),
+    handle_note    VARCHAR(255),
+    handled_at     DATETIME,
+    rechecker_name VARCHAR(32),
+    recheck_pass   TINYINT,
+    recheck_note   VARCHAR(255),
+    rechecked_at   DATETIME,
+    rev            INT          NOT NULL DEFAULT 0,
+    created_at     DATETIME     NOT NULL,
+    updated_at     DATETIME,
+    active_pile_id BIGINT GENERATED ALWAYS AS (CASE WHEN status = 'FH_RECHECK_PASS' THEN NULL ELSE pile_id END),
+    PRIMARY KEY (id),
+    CONSTRAINT uk_handling_no UNIQUE (handling_no),
+    CONSTRAINT uk_active_fault_pile UNIQUE (active_pile_id)
+);
+CREATE INDEX idx_handling_pile ON fault_handling (pile_id);
+CREATE INDEX idx_handling_station_status ON fault_handling (station_id, status);
+CREATE INDEX idx_handling_status ON fault_handling (status);

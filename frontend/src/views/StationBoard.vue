@@ -19,6 +19,8 @@
       <span class="legend"><i class="dot dot--open"></i>运营中</span>
       <span class="legend"><i class="dot dot--closed"></i>已停用（不能借还、不能调入）</span>
       <span class="legend"><i class="dot dot--disabled"></i>桩位停用</span>
+      <span class="legend"><i class="dot dot--pending-iso"></i>待隔离（车可借走/调出，新车禁入）</span>
+      <span class="legend"><i class="dot dot--isolated"></i>已隔离（借还/调拨均不可选）</span>
       <span class="legend"><i class="dot dot--drag"></i>可拖动</span>
       <span v-if="dragging" class="dragging">
         正在拖 <b>{{ dragging.bikeCode }}</b>（来自 {{ dragging.fromPileNo }}）—— 松手放到目标格子里
@@ -51,6 +53,24 @@
             车辆 {{ st.bikeCount }} / 容量 {{ st.capacity }}
             <em>· 空桩 {{ st.freePileCount }}</em>
           </span>
+        </div>
+
+        <div class="iso-row" v-if="st.pendingIsolatedCount || st.isolatedCount || st.pendingRecheckCount">
+          <el-tag
+            v-if="st.pendingIsolatedCount"
+            size="small" type="warning" effect="dark" class="iso-tag"
+            @click="goInspection(st.id)"
+          >待隔离 {{ st.pendingIsolatedCount }}</el-tag>
+          <el-tag
+            v-if="st.isolatedCount"
+            size="small" type="danger" effect="dark" class="iso-tag"
+            @click="goInspection(st.id)"
+          >已隔离 {{ st.isolatedCount }}</el-tag>
+          <el-tag
+            v-if="st.pendingRecheckCount"
+            size="small" type="primary" effect="dark" class="iso-tag"
+            @click="goInspection(st.id)"
+          >待复验 {{ st.pendingRecheckCount }}</el-tag>
         </div>
 
         <div v-if="st.activeClearance || st.lastClearance" class="clearance-row">
@@ -91,6 +111,8 @@
               'pile--idle': pile.status === 'IDLE',
               'pile--occupied': pile.status === 'OCCUPIED',
               'pile--disabled': pile.status === 'DISABLED',
+              'pile--pending-iso': pile.status === 'PENDING_ISOLATED',
+              'pile--isolated': pile.status === 'ISOLATED',
               'pile--over': overPileId === pile.id
             }"
             @dragover.prevent="onDragOverPile(pile)"
@@ -113,6 +135,10 @@
             </div>
 
             <span v-else-if="pile.status === 'DISABLED'" class="pile-empty">桩位停用</span>
+            <span v-else-if="pile.status === 'ISOLATED'" class="pile-empty">已隔离</span>
+            <span v-else-if="pile.status === 'PENDING_ISOLATED'" class="pile-empty">
+              待隔离<em>车可离桩</em>
+            </span>
             <span v-else class="pile-empty">空桩</span>
           </div>
         </div>
@@ -120,6 +146,7 @@
         <footer class="st-foot">
           <el-button size="small" @click="addPile(st)">加桩位</el-button>
           <el-button size="small" @click="changeCapacity(st)">改容量</el-button>
+          <el-button size="small" type="primary" plain @click="createInspection(st)">巡检</el-button>
           <el-button
             size="small"
             :type="st.status === 'OPEN' ? 'warning' : 'success'"
@@ -203,9 +230,9 @@ const otherPiles = computed(() => {
   for (const st of stations.value) {
     if (st.status !== 'OPEN') continue
     for (const p of st.piles) {
-      if (p.status === 'DISABLED') continue
+      // 调拨落点只列空闲可用桩：停用 / 已隔离 / 待隔离 / 占用都不能放新车
+      if (p.status !== 'IDLE' || p.bikeId) continue
       if (p.id === picked.value.pileId) continue
-      if (p.bikeId && p.bikeId !== picked.value.bikeId) continue
       out.push({ id: p.id, pileNo: p.pileNo, stationName: st.name })
     }
   }
@@ -215,6 +242,16 @@ const otherPiles = computed(() => {
 function capPercent(st) {
   if (!st.capacity) return 0
   return Math.min(100, Math.round((st.bikeCount / st.capacity) * 100))
+}
+
+/** 跳到桩位巡检模块（站点看板上的待隔离/已隔离/待复验角标） */
+function goInspection(stationId) {
+  nav.push({ path: '/inspections', query: { stationId: String(stationId) } })
+}
+
+/** 为该站点新建巡检批次：带站点过滤进入巡检页，由运营人员在页面上创建 */
+function createInspection(st) {
+  nav.push({ path: '/inspections', query: { stationId: String(st.id), create: '1' } })
 }
 
 /** 跳到应急清站模块并打开对应清站单 */
@@ -272,6 +309,10 @@ async function dropOnPile(st, pile) {
   if (!moving) return
   if (pile.status === 'DISABLED') {
     ElMessage.warning(`桩位 ${pile.pileNo} 已停用，不能放车`)
+    return
+  }
+  if (pile.status === 'ISOLATED' || pile.status === 'PENDING_ISOLATED') {
+    ElMessage.warning(`桩位 ${pile.pileNo} 处于${pile.status === 'ISOLATED' ? '已隔离' : '待隔离'}，故障桩在复验通过前不接收新车`)
     return
   }
   await doTransfer(moving.bikeId, pile.id)
@@ -472,7 +513,20 @@ onMounted(load)
 .dot--open { background: var(--el-color-primary); }
 .dot--closed { background: #b6bdb0; }
 .dot--disabled { background: #d9534f; }
+.dot--pending-iso { background: #e6a23c; }
+.dot--isolated { background: #c45656; }
 .dot--drag { background: #4a7fb5; }
+
+.iso-row {
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.iso-tag {
+  cursor: pointer;
+}
 
 .dragging {
   color: var(--el-color-primary-dark-2);
@@ -622,6 +676,34 @@ onMounted(load)
 .pile--disabled {
   border-color: #e6b3b1;
   background: #fdf3f3;
+}
+
+.pile--pending-iso {
+  border-style: solid;
+  border-color: #e6a23c;
+  background: #fdf6ec;
+}
+
+.pile--pending-iso .pile-no {
+  color: #b88230;
+}
+
+.pile--isolated {
+  border-style: solid;
+  border-color: #c45656;
+  background: #fef0f0;
+}
+
+.pile--isolated .pile-no {
+  color: #c45656;
+}
+
+.pile-empty em {
+  display: block;
+  font-style: normal;
+  font-size: 10px;
+  color: #b88230;
+  margin-top: 1px;
 }
 
 .pile--over {

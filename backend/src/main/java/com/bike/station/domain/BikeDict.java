@@ -88,11 +88,17 @@ public final class BikeDict {
     public static final String PILE_IDLE = "IDLE";
     public static final String PILE_OCCUPIED = "OCCUPIED";
     public static final String PILE_DISABLED = "DISABLED";
+    /** 待隔离：巡检发现故障时桩上仍有车，不清车辆落点；车可借走/调出，但任何新车不能进入 */
+    public static final String PILE_PENDING_ISOLATED = "PENDING_ISOLATED";
+    /** 已隔离：空桩故障立即隔离，或待隔离桩的车离开后自动转入；借车/还车/调拨一律不可用 */
+    public static final String PILE_ISOLATED = "ISOLATED";
 
     private static final Map<String, String> PILE_STATUS_NAME = Map.of(
             "IDLE", "空闲",
             "OCCUPIED", "占用",
-            "DISABLED", "停用");
+            "DISABLED", "停用",
+            "PENDING_ISOLATED", "待隔离",
+            "ISOLATED", "已隔离");
 
     public static final String WORKER_ON_DUTY = "ON_DUTY";
     public static final String WORKER_OFF_DUTY = "OFF_DUTY";
@@ -195,6 +201,16 @@ public final class BikeDict {
 
     public static String pileStatusName(String status) {
         return status == null ? "" : PILE_STATUS_NAME.getOrDefault(status, status);
+    }
+
+    /** 桩位是否允许【新车进入】（还车 / 调拨落点）：只有空闲或占用这类正常桩才允许 */
+    public static boolean pileAcceptsBike(String status) {
+        return PILE_IDLE.equals(status) || PILE_OCCUPIED.equals(status);
+    }
+
+    /** 桩位是否处于巡检隔离（待隔离或已隔离） */
+    public static boolean pileIsolation(String status) {
+        return PILE_PENDING_ISOLATED.equals(status) || PILE_ISOLATED.equals(status);
     }
 
     public static boolean isValidWorkerStatus(String status) {

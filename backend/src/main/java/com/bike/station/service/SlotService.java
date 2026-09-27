@@ -90,10 +90,29 @@ public class SlotService {
         }
     }
 
-    /** 桩位不能是停用状态 */
+    /**
+     * 桩位必须能接收车辆（还车 / 调拨落点 / 新车上桩）。
+     * 停用、已隔离、待隔离的桩位一律不放新车 —— 巡检隔离在这条线上硬生效，
+     * 不是只在前端隐藏选项。
+     */
     public void assertPileUsable(Pile pile, String action) {
-        if (BikeDict.PILE_DISABLED.equals(pile.getStatus())) {
-            throw new BizException(action + "失败：桩位「" + pile.getPileNo() + "」处于停用状态，不能使用");
+        if (!BikeDict.pileAcceptsBike(pile.getStatus())) {
+            throw new BizException(action + "失败：桩位「" + pile.getPileNo() + "」处于「"
+                    + BikeDict.pileStatusName(pile.getStatus())
+                    + "」状态，不能接收车辆（故障桩在复验通过前一律不放新车）");
+        }
+    }
+
+    /**
+     * 借车校验：桩位不能停用、不能已隔离。
+     * 「待隔离」桩上的车仍允许被正常借走（车一离开，桩位由 {@link #releasePile}
+     * 自动转为已隔离）—— 安全隔离优先，但不把还挂着的车困在桩上。
+     */
+    public void assertPileBorrowable(Pile pile, String action) {
+        String status = pile.getStatus();
+        if (BikeDict.PILE_DISABLED.equals(status) || BikeDict.PILE_ISOLATED.equals(status)) {
+            throw new BizException(action + "失败：桩位「" + pile.getPileNo() + "」处于「"
+                    + BikeDict.pileStatusName(status) + "」状态，不能借车");
         }
     }
 
@@ -134,9 +153,13 @@ public class SlotService {
     }
 
     /**
-     * 把车从它现在占的桩位上摘下来（车离桩：借车、送修、报废都走这里）。
+     * 把车从它现在占的桩位上摘下来（车离桩：借车、调出、送修、报废都走这里）。
      * 只释放桩位并把 bike.pileId 置空；要不要连 stationId 一起清掉由调用方决定
      * （骑行中/报废要清，维修中要留）。
+     *
+     * 巡检联动：待隔离（PENDING_ISOLATED）桩上的车一离开，桩位【自动】转为已隔离 ——
+     * 不依赖页面再点一次，调用方（借车/调拨/送修）都已持桩位行锁，状态推进与车辆
+     * 落点在同一事务内完成，不会出现「桩显示空闲却仍挂车 / 显示占用却查不到车」。
      */
     public void releasePile(Bike bike) {
         Long pileId = bike.getPileId();
@@ -144,7 +167,10 @@ public class SlotService {
             return;
         }
         pileRepository.findById(pileId).ifPresent(p -> {
-            if (!BikeDict.PILE_DISABLED.equals(p.getStatus())) {
+            if (BikeDict.PILE_PENDING_ISOLATED.equals(p.getStatus())) {
+                p.setStatus(BikeDict.PILE_ISOLATED);
+            } else if (!BikeDict.PILE_DISABLED.equals(p.getStatus())
+                    && !BikeDict.PILE_ISOLATED.equals(p.getStatus())) {
                 p.setStatus(BikeDict.PILE_IDLE);
             }
         });

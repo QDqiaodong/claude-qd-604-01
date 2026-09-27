@@ -43,6 +43,14 @@ export const navItems = [
     label: '应急清站',
     icon: '🚚',
     hint: '按清站单号直查 CS2026...'
+  },
+  {
+    key: 'inspections',
+    path: '/inspections',
+    code: '06',
+    label: '桩位巡检',
+    icon: '🔎',
+    hint: '按巡检批号直查 JC2026...'
   }
 ]
 
@@ -53,6 +61,7 @@ const routes = [
   { path: '/rentals', name: 'rentals', component: () => import('../views/RentalFlow.vue') },
   { path: '/work-orders', name: 'work-orders', component: () => import('../views/WorkOrderFlow.vue') },
   { path: '/clearances', name: 'clearances', component: () => import('../views/ClearanceFlow.vue') },
+  { path: '/inspections', name: 'inspections', component: () => import('../views/InspectionFlow.vue') },
   { path: '/:pathMatch(.*)*', redirect: '/bikes' }
 ]
 

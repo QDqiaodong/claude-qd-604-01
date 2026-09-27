@@ -45,17 +45,20 @@ public class StationService {
     private final BikeRepository bikeRepository;
     private final ClearanceOrderRepository clearanceOrderRepository;
     private final SlotService slotService;
+    private final InspectionService inspectionService;
 
     public StationService(StationRepository stationRepository,
                           PileRepository pileRepository,
                           BikeRepository bikeRepository,
                           ClearanceOrderRepository clearanceOrderRepository,
-                          SlotService slotService) {
+                          SlotService slotService,
+                          InspectionService inspectionService) {
         this.stationRepository = stationRepository;
         this.pileRepository = pileRepository;
         this.bikeRepository = bikeRepository;
         this.clearanceOrderRepository = clearanceOrderRepository;
         this.slotService = slotService;
+        this.inspectionService = inspectionService;
     }
 
     // ------------------------------------------------------------------
@@ -103,6 +106,7 @@ public class StationService {
         }
 
         List<Views.StationCard> cards = new ArrayList<>(stations.size());
+        Map<Long, InspectionService.StationCounters> counters = inspectionService.stationCountersMap();
         for (Station s : stations) {
             List<Pile> piles = pilesByStation.getOrDefault(s.getId(), List.of()).stream()
                     .sorted(Comparator.comparing(Pile::getPileNo))
@@ -123,6 +127,8 @@ public class StationService {
                         b == null ? null : b.getCode(),
                         b == null ? null : b.getModel()));
             }
+            InspectionService.StationCounters c =
+                    counters.getOrDefault(s.getId(), new InspectionService.StationCounters(0, 0, 0));
             cards.add(new Views.StationCard(
                     s.getId(),
                     s.getCode(),
@@ -133,6 +139,9 @@ public class StationService {
                     BikeDict.stationStatusName(s.getStatus()),
                     bikeCountByStation.getOrDefault(s.getId(), 0L),
                     free,
+                    c.pendingIsolated(),
+                    c.isolated(),
+                    c.pendingRecheck(),
                     pileViews,
                     activeBadge.get(s.getId()),
                     lastBadge.get(s.getId())));

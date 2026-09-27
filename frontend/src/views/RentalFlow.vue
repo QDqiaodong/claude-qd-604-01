@@ -40,14 +40,27 @@
             v-for="bike in pileBikes"
             :key="bike.id"
             class="loan-card"
-            :class="{ 'loan-card--focus': bike.code === focusCode }"
+            :class="{ 'loan-card--focus': bike.code === focusCode, 'loan-card--iso': isIsolatedPile(bike.pileId) }"
           >
             <div class="lc-main">
-              <div class="lc-code">{{ bike.code }}</div>
+              <div class="lc-code">
+                {{ bike.code }}
+                <el-tag v-if="pileState(bike.pileId) === 'PENDING_ISOLATED'" size="small" type="warning" effect="plain" class="ml6">
+                  待隔离·可借走
+                </el-tag>
+                <el-tag v-else-if="isIsolatedPile(bike.pileId)" size="small" type="danger" effect="plain" class="ml6">
+                  已隔离·禁借
+                </el-tag>
+              </div>
               <div class="lc-where">{{ bike.stationName }} · {{ bike.pileNo }}</div>
               <div class="lc-model">{{ bike.model }} · 累计 {{ bike.totalRides }} 次</div>
             </div>
-            <el-button type="primary" size="small" @click="borrow(bike)">借车</el-button>
+            <el-button
+              type="primary"
+              size="small"
+              :disabled="isIsolatedPile(bike.pileId)"
+              @click="borrow(bike)"
+            >借车</el-button>
           </article>
         </div>
       </section>
@@ -202,6 +215,7 @@ const freePiles = computed(() => {
   for (const st of stations.value) {
     if (st.status !== 'OPEN') continue
     for (const p of st.piles) {
+      // 已隔离 / 待隔离 / 停用桩都不是还车可选落点（后端同样硬拦）
       if (p.status === 'IDLE' && !p.bikeId) {
         out.push({ pileId: p.id, pileNo: p.pileNo, stationName: st.name })
       }
@@ -209,6 +223,19 @@ const freePiles = computed(() => {
   }
   return out
 })
+
+/** 查某桩当前状态（借车卡片标注隔离态用） */
+function pileState(pileId) {
+  for (const st of stations.value) {
+    const p = st.piles.find((x) => x.id === pileId)
+    if (p) return p.status
+  }
+  return null
+}
+
+function isIsolatedPile(pileId) {
+  return pileState(pileId) === 'ISOLATED'
+}
 
 function fmt(value) {
   if (!value) return ''
@@ -429,6 +456,15 @@ onMounted(load)
 .loan-card--focus {
   outline: 2px solid var(--el-color-primary);
   outline-offset: 1px;
+}
+
+.loan-card--iso {
+  border-left-color: #c45656;
+  background: #fef7f7;
+}
+
+.ml6 {
+  margin-left: 6px;
 }
 
 .lc-code {

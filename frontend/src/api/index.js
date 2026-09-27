@@ -14,13 +14,24 @@ http.interceptors.response.use(
     if (body && typeof body === 'object' && Object.prototype.hasOwnProperty.call(body, 'ok')) {
       if (body.ok) return body.data
       ElMessage.error(body.message || '操作失败')
-      return Promise.reject(new Error(body.message || '操作失败'))
+      const err = new Error(body.message || '操作失败')
+      err.latest = body.data
+      return Promise.reject(err)
     }
     return body
   },
   (err) => {
     const body = err.response && err.response.data
     const message = (body && body.message) || err.message || '网络异常，请稍后再试'
+    // 409 并发冲突：明确提示，并把后端带回的【最新视图】挂在 error.latest 上，
+    // 页面据此用最新状态覆盖旧页面，已生效的记录不被旧表单覆盖
+    if (err.response && err.response.status === 409) {
+      ElMessage.warning(message)
+      const conflict = new Error(message)
+      conflict.conflict = true
+      conflict.latest = body ? body.data : null
+      return Promise.reject(conflict)
+    }
     ElMessage.error(message)
     return Promise.reject(new Error(message))
   }
@@ -74,6 +85,18 @@ export const clearanceApi = {
     http.post(`/clearances/${id}/items/${itemId}/adjust`, payload),
   execute: (id) => http.post(`/clearances/${id}/execute`),
   cancel: (id) => http.post(`/clearances/${id}/cancel`)
+}
+
+export const inspectionApi = {
+  list: (params) => http.get('/inspections', { params }),
+  detail: (id) => http.get(`/inspections/${id}`),
+  create: (payload) => http.post('/inspections', payload),
+  check: (batchId, itemId, payload) =>
+    http.post(`/inspections/${batchId}/items/${itemId}/check`, payload),
+  handle: (handlingId, payload) =>
+    http.post(`/inspections/handlings/${handlingId}/handle`, payload),
+  recheck: (handlingId, payload) =>
+    http.post(`/inspections/handlings/${handlingId}/recheck`, payload)
 }
 
 export default http

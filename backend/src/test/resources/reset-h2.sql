@@ -1,4 +1,7 @@
 -- 每个测试方法前重置全部业务表（按依赖顺序），让并发测试也拿到干净数据
+DELETE FROM fault_handling;
+DELETE FROM inspection_item;
+DELETE FROM inspection_batch;
 DELETE FROM clearance_item;
 DELETE FROM clearance_receiver;
 DELETE FROM clearance_order;
@@ -19,6 +22,9 @@ ALTER TABLE work_order ALTER COLUMN id RESTART WITH 1;
 ALTER TABLE clearance_order ALTER COLUMN id RESTART WITH 1;
 ALTER TABLE clearance_receiver ALTER COLUMN id RESTART WITH 1;
 ALTER TABLE clearance_item ALTER COLUMN id RESTART WITH 1;
+ALTER TABLE inspection_batch ALTER COLUMN id RESTART WITH 1;
+ALTER TABLE inspection_item ALTER COLUMN id RESTART WITH 1;
+ALTER TABLE fault_handling ALTER COLUMN id RESTART WITH 1;
 
 INSERT INTO bike_user (id, phone, nickname, balance, status, created_at) VALUES
 (1, '13800000001', '阿明', 30.00, 'NORMAL', '2026-08-01 09:00:00'),
@@ -35,10 +41,10 @@ INSERT INTO station (id, code, name, district, capacity, status, longitude, lati
 (7, 'S007', '知春路驿站', '海淀区', 6, 'OPEN', 116.325000, 39.984000, '2026-07-01 08:00:00');
 
 INSERT INTO pile (id, station_id, pile_no, status, created_at) VALUES
-(101, 1, 'P1', 'OCCUPIED', '2026-07-01 08:00:00'),
+(101, 1, 'P1', 'PENDING_ISOLATED', '2026-07-01 08:00:00'),
 (102, 1, 'P2', 'OCCUPIED', '2026-07-01 08:00:00'),
-(103, 1, 'P3', 'OCCUPIED', '2026-07-01 08:00:00'),
-(104, 1, 'P4', 'IDLE',     '2026-07-01 08:00:00'),
+(103, 1, 'P3', 'ISOLATED', '2026-07-01 08:00:00'),
+(104, 1, 'P4', 'PENDING_ISOLATED', '2026-07-01 08:00:00'),
 (105, 1, 'P5', 'IDLE',     '2026-07-01 08:00:00'),
 (106, 1, 'P6', 'DISABLED', '2026-07-01 08:00:00'),
 (123, 1, 'P7', 'OCCUPIED', '2026-07-01 08:00:00'),
@@ -63,7 +69,7 @@ INSERT INTO pile (id, station_id, pile_no, status, created_at) VALUES
 INSERT INTO bike (id, code, model, status, station_id, pile_id, total_rides, scrap_reason, created_at, updated_at) VALUES
 (1001, 'BK-1001', '青桔经典款',  'PILE',     1, 101,  42, NULL, '2026-06-01 08:00:00', '2026-09-20 18:00:00'),
 (1002, 'BK-1002', '青桔经典款',  'PILE',     1, 102,  37, NULL, '2026-06-01 08:00:00', '2026-09-20 18:00:00'),
-(1003, 'BK-1003', '青桔轻骑款',  'PILE',     1, 103,  55, NULL, '2026-06-01 08:00:00', '2026-09-20 18:00:00'),
+(1003, 'BK-1003', '青桔轻骑款',  'PILE',     1, 104,  56, NULL, '2026-06-01 08:00:00', '2026-09-21 09:40:00'),
 (1004, 'BK-1004', '哈啰电助力',  'PILE',     2, 107,  88, NULL, '2026-06-02 08:00:00', '2026-09-20 18:00:00'),
 (1005, 'BK-1005', '哈啰电助力',  'PILE',     2, 108,  61, NULL, '2026-06-02 08:00:00', '2026-09-20 18:00:00'),
 (1006, 'BK-1006', '美团小黄车',  'PILE',     3, 111,  73, NULL, '2026-06-03 08:00:00', '2026-09-20 18:00:00'),
@@ -103,3 +109,59 @@ INSERT INTO work_order (id, order_no, bike_id, fault_type, level, status, worker
     '2026-09-05 09:00:00', '2026-09-05 10:00:00', '2026-09-04 16:00:00', '2026-09-04 16:30:00', '2026-09-05 09:50:00', '紧固并更换销钉'),
 (5, 'WO20260922005', 1010, '车把转向卡滞',   'MID',  'REPORTED', NULL,
     NULL, NULL, '2026-09-22 09:30:00', NULL, NULL, NULL);
+
+-- ---- 模块六：桩位巡检种子（与生产种子口径一致，供巡检模块测试与看板统计） ----
+INSERT INTO inspection_batch (id, batch_no, station_id, status, total_count, checked_count,
+                              fault_count, remark, created_by, created_at, completed_at) VALUES
+(1, 'JC20260920001', 1, 'COMPLETED', 5, 5, 2, '周度例行巡检', '赵运营',
+    '2026-09-20 08:30:00', '2026-09-20 11:10:00'),
+(2, 'JC20260921002', 2, 'COMPLETED', 2, 2, 1, '五道口通信信号复查', '钱运营',
+    '2026-09-21 09:00:00', '2026-09-25 16:20:00'),
+(3, 'JC20260926003', 1, 'IN_PROGRESS', 3, 2, 1, '周度例行巡检（进行中）', '赵运营',
+    '2026-09-26 09:00:00', NULL);
+
+INSERT INTO inspection_item (id, batch_id, pile_id, pile_no, snapshot_occupied, snapshot_bike_id,
+                             snapshot_bike_code, result, lock_status, power_status, comm_status,
+                             fault_level, fault_desc, isolated_mode, checker_name, checked_at,
+                             rev, created_at) VALUES
+(1, 1, 101, 'P1', 1, 1001, 'BK-1001', 'FAULT',  'NORMAL', 'FAULT', 'NORMAL',
+    'HIGH', '供电模块无输出，桩锁无法正常取电', 'PENDING_ISOLATED', '赵运营', '2026-09-20 09:15:00', 2, '2026-09-20 08:30:00'),
+(2, 1, 102, 'P2', 1, 1002, 'BK-1002', 'OK',     'NORMAL', 'NORMAL', 'NORMAL',
+    NULL, '三项检查均正常', NULL, '赵运营', '2026-09-20 09:40:00', 1, '2026-09-20 08:30:00'),
+(3, 1, 103, 'P3', 0, NULL, NULL, 'FAULT', 'FAULT',  'NORMAL', 'NORMAL',
+    'HIGH', '桩锁卡死无法开合，空桩立即隔离', 'ISOLATED', '赵运营', '2026-09-20 10:05:00', 1, '2026-09-20 08:30:00'),
+(4, 1, 104, 'P4', 0, NULL, NULL, 'OK',     'NORMAL', 'NORMAL', 'NORMAL',
+    NULL, '检查时桩位空闲，一切正常', NULL, '赵运营', '2026-09-20 10:30:00', 1, '2026-09-20 08:30:00'),
+(5, 1, 105, 'P5', 0, NULL, NULL, 'OK',     'NORMAL', 'NORMAL', 'NORMAL',
+    NULL, NULL, NULL, '赵运营', '2026-09-20 11:10:00', 1, '2026-09-20 08:30:00'),
+(6, 2, 107, 'P1', 1, 1004, 'BK-1004', 'FAULT',  'NORMAL', 'NORMAL', 'FAULT',
+    'MID', '通信模块离线，平台读不到桩状态', 'PENDING_ISOLATED', '钱运营', '2026-09-21 09:40:00', 3, '2026-09-21 09:00:00'),
+(7, 2, 108, 'P2', 1, 1005, 'BK-1005', 'OK',     'NORMAL', 'NORMAL', 'NORMAL',
+    NULL, NULL, NULL, '钱运营', '2026-09-21 10:05:00', 1, '2026-09-21 09:00:00'),
+(8, 3, 104, 'P4', 1, 1003, 'BK-1003', 'FAULT',  'FAULT', 'NORMAL', 'NORMAL',
+    'HIGH', '桩锁无法落锁，桩上仍有车，先待隔离，禁止新车进入', 'PENDING_ISOLATED', '赵运营', '2026-09-26 09:30:00', 1, '2026-09-26 09:00:00'),
+(9, 3, 106, 'P6', 0, NULL, NULL, 'OK',     'NORMAL', 'NORMAL', 'NORMAL',
+    NULL, '停用桩仅登记检查结果，维持停用状态', NULL, '赵运营', '2026-09-26 09:50:00', 1, '2026-09-26 09:00:00'),
+(10, 3, 123, 'P7', 1, 1010, 'BK-1010', 'PENDING', 'UNKNOWN', 'UNKNOWN', 'UNKNOWN',
+    NULL, NULL, NULL, NULL, NULL, 0, '2026-09-26 09:00:00');
+
+INSERT INTO fault_handling (id, handling_no, pile_id, station_id, batch_id, item_id, bike_id,
+                            fault_level, fault_desc, status, handler_name, handle_note, handled_at,
+                            rechecker_name, recheck_pass, recheck_note, rechecked_at, rev,
+                            created_at, updated_at) VALUES
+(1, 'FH20260920001', 103, 1, 1, 3, NULL,
+    'HIGH', '桩锁卡死无法开合，空桩立即隔离', 'FH_PENDING', NULL, NULL, NULL,
+    NULL, NULL, NULL, NULL, 0,
+    '2026-09-20 10:05:00', '2026-09-20 10:05:00'),
+(2, 'FH20260920002', 101, 1, 1, 1, 1001,
+    'HIGH', '供电模块无输出，桩锁无法正常取电', 'FH_HANDLED', '孙维修', '更换供电模块并复测取电正常', '2026-09-23 14:20:00',
+    NULL, NULL, NULL, NULL, 1,
+    '2026-09-20 09:15:00', '2026-09-23 14:20:00'),
+(3, 'FH20260926003', 104, 1, 3, 8, 1003,
+    'HIGH', '桩锁无法落锁，桩上仍有车，先待隔离，禁止新车进入', 'FH_PENDING', NULL, NULL, NULL,
+    NULL, NULL, NULL, NULL, 0,
+    '2026-09-26 09:30:00', '2026-09-26 09:30:00'),
+(4, 'FH20260921004', 107, 2, 2, 6, 1004,
+    'MID', '通信模块离线，平台读不到桩状态', 'FH_RECHECK_PASS', '李工', '更换 4G 通信模组，信号恢复', '2026-09-24 10:30:00',
+    '钱运营', 1, '通信在线率 100%，按真实占车恢复为占用', '2026-09-25 16:20:00', 3,
+    '2026-09-21 09:40:00', '2026-09-25 16:20:00');

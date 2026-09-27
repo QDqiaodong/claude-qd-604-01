@@ -18,8 +18,18 @@ public class GlobalExceptionHandler {
      * 业务校验失败：400 + 中文业务提示
      */
     @ExceptionHandler(BizException.class)
-    public ResponseEntity<ApiResponse<Void>> handleBiz(BizException e) {
+    public ResponseEntity<ApiResponse<Object>> handleBiz(BizException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.fail(e.getMessage()));
+    }
+
+    /**
+     * 并发冲突：409 + 冲突说明，并在 data 里带回【最新视图】。
+     * 后提交的一方必须看到明确冲突与最新状态，不能让旧页面覆盖已生效的数据。
+     */
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ApiResponse<Object>> handleConflict(ConflictException e) {
+        ApiResponse<Object> body = new ApiResponse<>(false, e.getMessage(), e.getLatest());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
     }
 
     /**
