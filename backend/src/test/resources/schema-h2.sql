@@ -32,7 +32,7 @@ CREATE TABLE pile (
     id         BIGINT      NOT NULL AUTO_INCREMENT,
     station_id BIGINT      NOT NULL,
     pile_no    VARCHAR(16) NOT NULL,
-    status     VARCHAR(16) NOT NULL,
+    status     VARCHAR(24) NOT NULL,
     created_at DATETIME    NOT NULL,
     PRIMARY KEY (id),
     CONSTRAINT uk_pile_station_no UNIQUE (station_id, pile_no)
@@ -166,3 +166,92 @@ CREATE TABLE clearance_item (
 );
 CREATE INDEX idx_clearance_item_status ON clearance_item (clearance_id, item_status);
 CREATE INDEX idx_clearance_item_bike ON clearance_item (bike_id);
+
+CREATE TABLE operator (
+    id         BIGINT       NOT NULL AUTO_INCREMENT,
+    name       VARCHAR(32)  NOT NULL,
+    phone      VARCHAR(20)  NOT NULL,
+    status     VARCHAR(16)  NOT NULL,
+    created_at DATETIME     NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT uk_operator_phone UNIQUE (phone)
+);
+
+CREATE TABLE inspection_batch (
+    id                        BIGINT       NOT NULL AUTO_INCREMENT,
+    batch_no                  VARCHAR(32)  NOT NULL,
+    station_id                BIGINT       NOT NULL,
+    status                    VARCHAR(16)  NOT NULL,
+    creator_id                BIGINT       NOT NULL,
+    remark                    VARCHAR(255),
+    pile_count                INT          NOT NULL,
+    snapshot_occupied_count   INT          NOT NULL,
+    snapshot_idle_count       INT          NOT NULL,
+    snapshot_disabled_count   INT          NOT NULL,
+    checked_count             INT          NOT NULL,
+    normal_count              INT          NOT NULL,
+    fault_count               INT          NOT NULL,
+    pending_quarantine_count  INT          NOT NULL,
+    quarantined_count         INT          NOT NULL,
+    pending_recheck_count     INT          NOT NULL,
+    finished_at               DATETIME,
+    created_at                DATETIME     NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT uk_inspection_batch_no UNIQUE (batch_no)
+);
+CREATE INDEX idx_inspection_batch_station ON inspection_batch (station_id);
+CREATE INDEX idx_inspection_batch_status ON inspection_batch (status);
+
+CREATE TABLE inspection_item (
+    id                    BIGINT       NOT NULL AUTO_INCREMENT,
+    batch_id              BIGINT       NOT NULL,
+    pile_id               BIGINT       NOT NULL,
+    pile_no               VARCHAR(16)  NOT NULL,
+    snapshot_bike_code    VARCHAR(32),
+    item_result           VARCHAR(16)  NOT NULL,
+    lock_result           VARCHAR(16),
+    power_result          VARCHAR(16),
+    com_result            VARCHAR(16),
+    fault_level           VARCHAR(16),
+    fault_desc            VARCHAR(255),
+    dispose_status        VARCHAR(16)  NOT NULL,
+    inspector_id          BIGINT,
+    inspected_at          DATETIME,
+    inspect_occupy_note   VARCHAR(255),
+    disposer_id           BIGINT,
+    dispose_started_at    DATETIME,
+    dispose_note          VARCHAR(255),
+    disposed_at           DATETIME,
+    rechecker_id          BIGINT,
+    rechecked_at          DATETIME,
+    recheck_result        VARCHAR(16),
+    recheck_note          VARCHAR(255),
+    recheck_pass_count    INT          NOT NULL DEFAULT 0,
+    recheck_fail_count    INT          NOT NULL DEFAULT 0,
+    created_at            DATETIME     NOT NULL,
+    updated_at           DATETIME,
+    active_pile_id        BIGINT GENERATED ALWAYS AS
+                          (CASE WHEN dispose_status IN ('PROCESSING', 'FIXED', 'RECHECK_FAIL') THEN pile_id ELSE NULL END),
+    PRIMARY KEY (id),
+    CONSTRAINT uk_inspection_item UNIQUE (batch_id, pile_id),
+    CONSTRAINT uk_inspection_active_pile UNIQUE (active_pile_id)
+);
+CREATE INDEX idx_inspection_item_batch ON inspection_item (batch_id, item_result);
+CREATE INDEX idx_inspection_item_pile ON inspection_item (pile_id);
+CREATE INDEX idx_inspection_item_dispose ON inspection_item (dispose_status);
+
+CREATE TABLE inspection_verify_log (
+    id            BIGINT       NOT NULL AUTO_INCREMENT,
+    item_id       BIGINT       NOT NULL,
+    batch_id      BIGINT       NOT NULL,
+    pile_id       BIGINT       NOT NULL,
+    result        VARCHAR(16)  NOT NULL,
+    note          VARCHAR(255),
+    operator_id   BIGINT       NOT NULL,
+    pile_restored VARCHAR(24),
+    restored_bike_code VARCHAR(32),
+    created_at    DATETIME     NOT NULL,
+    PRIMARY KEY (id)
+);
+CREATE INDEX idx_verify_log_item ON inspection_verify_log (item_id);
+CREATE INDEX idx_verify_log_batch ON inspection_verify_log (batch_id);

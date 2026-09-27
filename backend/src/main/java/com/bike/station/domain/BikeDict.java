@@ -88,11 +88,21 @@ public final class BikeDict {
     public static final String PILE_IDLE = "IDLE";
     public static final String PILE_OCCUPIED = "OCCUPIED";
     public static final String PILE_DISABLED = "DISABLED";
+    /** 待隔离（模块六巡检）：桩上仍有车，车可借走/调出，但任何新车不得进入；车离桩自动转已隔离 */
+    public static final String PILE_PENDING_QUARANTINE = "PENDING_QUARANTINE";
+    /** 已隔离（模块六巡检）：空桩，不参与借车/还车/调拨，复验通过才能恢复 */
+    public static final String PILE_QUARANTINED = "QUARANTINED";
 
     private static final Map<String, String> PILE_STATUS_NAME = Map.of(
             "IDLE", "空闲",
             "OCCUPIED", "占用",
-            "DISABLED", "停用");
+            "DISABLED", "停用",
+            "PENDING_QUARANTINE", "待隔离",
+            "QUARANTINED", "已隔离");
+
+    /** 因巡检隔离而不能接收新车的桩位状态 */
+    public static final List<String> PILE_BLOCKED_STATUS = List.of(
+            PILE_DISABLED, PILE_PENDING_QUARANTINE, PILE_QUARANTINED);
 
     public static final String WORKER_ON_DUTY = "ON_DUTY";
     public static final String WORKER_OFF_DUTY = "OFF_DUTY";
@@ -195,6 +205,16 @@ public final class BikeDict {
 
     public static String pileStatusName(String status) {
         return status == null ? "" : PILE_STATUS_NAME.getOrDefault(status, status);
+    }
+
+    /** 桩位是否处于隔离态（待隔离 / 已隔离） */
+    public static boolean isQuarantineStatus(String status) {
+        return PILE_PENDING_QUARANTINE.equals(status) || PILE_QUARANTINED.equals(status);
+    }
+
+    /** 桩位是否能接收车辆（停用/待隔离/已隔离都不行） */
+    public static boolean pileAcceptsBike(String status) {
+        return status != null && !PILE_BLOCKED_STATUS.contains(status);
     }
 
     public static boolean isValidWorkerStatus(String status) {

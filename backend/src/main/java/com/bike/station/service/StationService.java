@@ -18,12 +18,14 @@ import com.bike.station.domain.Bike;
 import com.bike.station.domain.BikeDict;
 import com.bike.station.domain.ClearanceDict;
 import com.bike.station.domain.ClearanceOrder;
+import com.bike.station.domain.InspectionDict;
 import com.bike.station.domain.Pile;
 import com.bike.station.domain.Station;
 import com.bike.station.dto.StationDtos;
 import com.bike.station.dto.Views;
 import com.bike.station.repository.BikeRepository;
 import com.bike.station.repository.ClearanceOrderRepository;
+import com.bike.station.repository.InspectionItemRepository;
 import com.bike.station.repository.PileRepository;
 import com.bike.station.repository.StationRepository;
 
@@ -44,17 +46,20 @@ public class StationService {
     private final PileRepository pileRepository;
     private final BikeRepository bikeRepository;
     private final ClearanceOrderRepository clearanceOrderRepository;
+    private final InspectionItemRepository inspectionItemRepository;
     private final SlotService slotService;
 
     public StationService(StationRepository stationRepository,
                           PileRepository pileRepository,
                           BikeRepository bikeRepository,
                           ClearanceOrderRepository clearanceOrderRepository,
+                          InspectionItemRepository inspectionItemRepository,
                           SlotService slotService) {
         this.stationRepository = stationRepository;
         this.pileRepository = pileRepository;
         this.bikeRepository = bikeRepository;
         this.clearanceOrderRepository = clearanceOrderRepository;
+        this.inspectionItemRepository = inspectionItemRepository;
         this.slotService = slotService;
     }
 
@@ -109,10 +114,17 @@ public class StationService {
                     .collect(Collectors.toList());
             List<Views.PileView> pileViews = new ArrayList<>(piles.size());
             long free = 0;
+            long pendingQuarantine = 0;
+            long quarantined = 0;
             for (Pile p : piles) {
                 Bike b = bikeByPile.get(p.getId());
                 if (b == null && BikeDict.PILE_IDLE.equals(p.getStatus())) {
                     free++;
+                }
+                if (BikeDict.PILE_PENDING_QUARANTINE.equals(p.getStatus())) {
+                    pendingQuarantine++;
+                } else if (BikeDict.PILE_QUARANTINED.equals(p.getStatus())) {
+                    quarantined++;
                 }
                 pileViews.add(new Views.PileView(
                         p.getId(),
@@ -123,6 +135,9 @@ public class StationService {
                         b == null ? null : b.getCode(),
                         b == null ? null : b.getModel()));
             }
+            // 站点看板直接标出：待隔离、已隔离、待复验数量（待复验来自全部批次里的 FIXED 处置）
+            long pendingRecheck = inspectionItemRepository.countByStationIdAndDisposeStatus(
+                    s.getId(), InspectionDict.DISPOSE_FIXED);
             cards.add(new Views.StationCard(
                     s.getId(),
                     s.getCode(),
@@ -133,6 +148,9 @@ public class StationService {
                     BikeDict.stationStatusName(s.getStatus()),
                     bikeCountByStation.getOrDefault(s.getId(), 0L),
                     free,
+                    pendingQuarantine,
+                    quarantined,
+                    pendingRecheck,
                     pileViews,
                     activeBadge.get(s.getId()),
                     lastBadge.get(s.getId())));
@@ -326,7 +344,8 @@ public class StationService {
         }
 
         slotService.assertStationOpen(targetStation, "调拨");
-        slotService.assertPileUsable(targetPile, "调拨");
+        // 调拨落位：停用/待隔离/已隔离桩都不接收新车（待隔离桩上原有的车仍可被调出）
+        slotService.assertPileAcceptsBike(targetPile, "调拨");
         slotService.assertPileFree(targetPile, "调拨");
         if (!targetStation.getId().equals(bike.getStationId())) {
             slotService.assertStationHasRoom(targetStation, bike, "调拨");
@@ -353,6 +372,7 @@ public class StationService {
 
     private Long firstFreePileId(Long stationId) {
         Station station = slotService.requireStation(stationId, "调拨");
+        // 只有「空闲 + 无车」的桩位才能自动落位：停用、待隔离、已隔离都不得接收新车
         Optional<Pile> free = pileRepository.findByStationIdOrderByPileNoAsc(station.getId()).stream()
                 .filter(p -> BikeDict.PILE_IDLE.equals(p.getStatus()))
                 .filter(p -> bikeRepository.findByPileId(p.getId()).isEmpty())

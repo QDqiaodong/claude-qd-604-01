@@ -219,7 +219,8 @@ public class RentalService {
                     + " 已经结算过了，还车是单向流程，不能重复还车");
         }
         slotService.assertStationOpen(station, "还车");
-        slotService.assertPileUsable(pile, "还车");
+        // 还车落位：停用/待隔离/已隔离桩都不接收新车
+        slotService.assertPileAcceptsBike(pile, "还车");
         slotService.assertPileFree(pile, "还车");
         slotService.assertStationHasRoom(station, null, "还车");
         if (!BikeDict.BIKE_RIDING.equals(bike.getStatus())) {

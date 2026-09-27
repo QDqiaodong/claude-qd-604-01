@@ -16,12 +16,15 @@ import com.bike.station.common.BizException;
 import com.bike.station.domain.Bike;
 import com.bike.station.domain.BikeDict;
 import com.bike.station.domain.ClearanceDict;
+import com.bike.station.domain.InspectionDict;
 import com.bike.station.domain.Pile;
 import com.bike.station.domain.Station;
 import com.bike.station.dto.BikeDtos;
 import com.bike.station.dto.Views;
 import com.bike.station.repository.BikeRepository;
 import com.bike.station.repository.ClearanceOrderRepository;
+import com.bike.station.repository.InspectionBatchRepository;
+import com.bike.station.repository.InspectionItemRepository;
 import com.bike.station.repository.PileRepository;
 import com.bike.station.repository.RentalRepository;
 import com.bike.station.repository.StationRepository;
@@ -46,6 +49,8 @@ public class BikeService {
     private final RentalRepository rentalRepository;
     private final WorkOrderRepository workOrderRepository;
     private final ClearanceOrderRepository clearanceOrderRepository;
+    private final InspectionBatchRepository inspectionBatchRepository;
+    private final InspectionItemRepository inspectionItemRepository;
     private final SlotService slotService;
 
     public BikeService(BikeRepository bikeRepository,
@@ -54,6 +59,8 @@ public class BikeService {
                        RentalRepository rentalRepository,
                        WorkOrderRepository workOrderRepository,
                        ClearanceOrderRepository clearanceOrderRepository,
+                       InspectionBatchRepository inspectionBatchRepository,
+                       InspectionItemRepository inspectionItemRepository,
                        SlotService slotService) {
         this.bikeRepository = bikeRepository;
         this.pileRepository = pileRepository;
@@ -61,6 +68,8 @@ public class BikeService {
         this.rentalRepository = rentalRepository;
         this.workOrderRepository = workOrderRepository;
         this.clearanceOrderRepository = clearanceOrderRepository;
+        this.inspectionBatchRepository = inspectionBatchRepository;
+        this.inspectionItemRepository = inspectionItemRepository;
         this.slotService = slotService;
     }
 
@@ -114,7 +123,11 @@ public class BikeService {
                 workOrderRepository.countByStatus(BikeDict.ORDER_REPORTED),
                 workOrderRepository.countByStatus(BikeDict.ORDER_ASSIGNED),
                 clearanceOrderRepository.countByStatusIn(ClearanceDict.ORDER_ACTIVE),
-                clearanceOrderRepository.countByStatusIn(List.of(ClearanceDict.ORDER_PARTIALLY_BLOCKED)));
+                clearanceOrderRepository.countByStatusIn(List.of(ClearanceDict.ORDER_PARTIALLY_BLOCKED)),
+                pileRepository.countByStatus(BikeDict.PILE_PENDING_QUARANTINE),
+                pileRepository.countByStatus(BikeDict.PILE_QUARANTINED),
+                inspectionBatchRepository.countByStatus(InspectionDict.BATCH_OPEN),
+                inspectionItemRepository.countByDisposeStatus(InspectionDict.DISPOSE_FIXED));
     }
 
     // ------------------------------------------------------------------
@@ -165,7 +178,7 @@ public class BikeService {
                         + station.getName() + "」，与传入的站点不一致");
             }
             slotService.assertStationOpen(station, "新增车辆");
-            slotService.assertPileUsable(pile, "新增车辆");
+            slotService.assertPileAcceptsBike(pile, "新增车辆");
             slotService.assertPileFree(pile, "新增车辆");
             slotService.assertStationHasRoom(station, null, "新增车辆");
             slotService.place(bike, station, pile);
@@ -224,7 +237,7 @@ public class BikeService {
                 Pile pile = slotService.lockPile(targetPileId, "修改车辆");
                 Station station = slotService.lockStation(pile.getStationId(), "修改车辆");
                 slotService.assertStationOpen(station, "修改车辆");
-                slotService.assertPileUsable(pile, "修改车辆");
+                slotService.assertPileAcceptsBike(pile, "修改车辆");
                 if (locationChanging) {
                     slotService.assertPileFree(pile, "修改车辆");
                 }

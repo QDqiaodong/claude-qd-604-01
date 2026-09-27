@@ -1,4 +1,8 @@
 -- 每个测试方法前重置全部业务表（按依赖顺序），让并发测试也拿到干净数据
+DELETE FROM inspection_verify_log;
+DELETE FROM inspection_item;
+DELETE FROM inspection_batch;
+DELETE FROM operator;
 DELETE FROM clearance_item;
 DELETE FROM clearance_receiver;
 DELETE FROM clearance_order;
@@ -19,6 +23,10 @@ ALTER TABLE work_order ALTER COLUMN id RESTART WITH 1;
 ALTER TABLE clearance_order ALTER COLUMN id RESTART WITH 1;
 ALTER TABLE clearance_receiver ALTER COLUMN id RESTART WITH 1;
 ALTER TABLE clearance_item ALTER COLUMN id RESTART WITH 1;
+ALTER TABLE operator ALTER COLUMN id RESTART WITH 1;
+ALTER TABLE inspection_batch ALTER COLUMN id RESTART WITH 1;
+ALTER TABLE inspection_item ALTER COLUMN id RESTART WITH 1;
+ALTER TABLE inspection_verify_log ALTER COLUMN id RESTART WITH 1;
 
 INSERT INTO bike_user (id, phone, nickname, balance, status, created_at) VALUES
 (1, '13800000001', '阿明', 30.00, 'NORMAL', '2026-08-01 09:00:00'),
@@ -103,3 +111,8 @@ INSERT INTO work_order (id, order_no, bike_id, fault_type, level, status, worker
     '2026-09-05 09:00:00', '2026-09-05 10:00:00', '2026-09-04 16:00:00', '2026-09-04 16:30:00', '2026-09-05 09:50:00', '紧固并更换销钉'),
 (5, 'WO20260922005', 1010, '车把转向卡滞',   'MID',  'REPORTED', NULL,
     NULL, NULL, '2026-09-22 09:30:00', NULL, NULL, NULL);
+
+INSERT INTO operator (id, name, phone, status, created_at) VALUES
+(1, '陈运营', '13900001001', 'ON_DUTY', '2026-07-05 09:00:00'),
+(2, '赵巡检', '13900001002', 'ON_DUTY', '2026-07-05 09:00:00'),
+(3, '孙值班', '13900001003', 'OFF_DUTY', '2026-07-05 09:00:00');

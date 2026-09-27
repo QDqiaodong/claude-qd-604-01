@@ -86,3 +86,8 @@ INSERT INTO work_order (id, order_no, bike_id, fault_type, level, status, worker
     '2026-09-05 09:00:00', '2026-09-05 10:00:00', '2026-09-04 16:00:00', '2026-09-04 16:30:00', '2026-09-05 09:50:00', '紧固并更换销钉'),
 (5, 'WO20260922005', 1010, '车把转向卡滞',   'MID',  'REPORTED', NULL,
     NULL, NULL, '2026-09-22 09:30:00', NULL, NULL, NULL);
+
+INSERT INTO operator (id, name, phone, status, created_at) VALUES
+(1, '陈运营', '13900001001', 'ON_DUTY', '2026-07-05 09:00:00'),
+(2, '赵巡检', '13900001002', 'ON_DUTY', '2026-07-05 09:00:00'),
+(3, '孙值班', '13900001003', 'OFF_DUTY', '2026-07-05 09:00:00');

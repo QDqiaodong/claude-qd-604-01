@@ -12,7 +12,11 @@
 
 SET NAMES utf8mb4;
 
--- 清站模块的两张表先于业务表删除（子表先删，避免悬空引用）
+-- 清站模块与巡检模块的表先于业务表删除（子表先删，避免悬空引用）
+DROP TABLE IF EXISTS inspection_verify_log;
+DROP TABLE IF EXISTS inspection_item;
+DROP TABLE IF EXISTS inspection_batch;
+DROP TABLE IF EXISTS operator;
 DROP TABLE IF EXISTS clearance_item;
 DROP TABLE IF EXISTS clearance_receiver;
 DROP TABLE IF EXISTS clearance_order;
@@ -62,12 +66,17 @@ CREATE TABLE station (
 --   一桩一车的落点在 bike.pile_id 上的唯一索引（MySQL 唯一索引允许多个 NULL，
 --   所以「空桩」可以无限多，「占用」只允许一辆车）。pile.status 只是快照，
 --   真正的占用关系以 bike.pile_id 为准，两者在同一个事务里一起改。
+--   巡检隔离引入两种状态（模块六）：
+--     PENDING_QUARANTINE 待隔离：桩上仍挂着车，车可被正常借走/调出，但任何新车不得进入；
+--                               车离桩后由借车/调拨/送修等「车辆离桩」动作自动转为 QUARANTINED。
+--     QUARANTINED        已隔离：空桩，不出现在借车/还车/调拨的可选桩位中，
+--                               只有复验通过才能恢复为 IDLE/OCCUPIED。
 -- ---------------------------------------------------------------------------
 CREATE TABLE pile (
     id         BIGINT      NOT NULL AUTO_INCREMENT,
     station_id BIGINT      NOT NULL COMMENT '所属站点',
     pile_no    VARCHAR(16) NOT NULL COMMENT '站内桩位号，形如 P1',
-    status     VARCHAR(16) NOT NULL COMMENT '桩位状态：IDLE 空闲 / OCCUPIED 占用 / DISABLED 停用',
+    status     VARCHAR(24) NOT NULL COMMENT '桩位状态：IDLE 空闲 / OCCUPIED 占用 / DISABLED 停用 / PENDING_QUARANTINE 待隔离 / QUARANTINED 已隔离',
     created_at DATETIME    NOT NULL,
     PRIMARY KEY (id),
     UNIQUE KEY uk_pile_station_no (station_id, pile_no),
@@ -249,6 +258,124 @@ CREATE TABLE clearance_item (
     KEY idx_clearance_item_bike (bike_id)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '清站车辆明细';
 
+-- ---------------------------------------------------------------------------
+-- 运营人员（模块六桩位巡检的检查人 / 处置人 / 复验人）
+-- ---------------------------------------------------------------------------
+CREATE TABLE operator (
+    id         BIGINT       NOT NULL AUTO_INCREMENT,
+    name       VARCHAR(32)  NOT NULL COMMENT '姓名',
+    phone      VARCHAR(20)  NOT NULL COMMENT '手机号，唯一',
+    status     VARCHAR(16)  NOT NULL COMMENT 'ON_DUTY 在岗 / OFF_DUTY 休息',
+    created_at DATETIME     NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_operator_phone (phone)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '运营人员';
+
+-- ---------------------------------------------------------------------------
+-- 桩位巡检批次（模块六）
+--   建单时把该站点当时的桩位清单逐桩快照进 inspection_item，
+--   之后新增的桩位不会进入旧批次（旧批次进度也不会被新桩位稀释）。
+--   snapshot_*_count 是建单瞬间的占车情况快照，与逐桩快照 bike_code 一起
+--   构成「当时占车情况」的固定账本。
+--   批次状态：OPEN 巡检中（仍有桩位未检查，或存在未完成的故障处置/复验）
+--             COMPLETED 已完成（全部桩位已检查，且故障处置全部复验关闭）。
+-- ---------------------------------------------------------------------------
+CREATE TABLE inspection_batch (
+    id                        BIGINT       NOT NULL AUTO_INCREMENT,
+    batch_no                  VARCHAR(32)  NOT NULL COMMENT '批次号，唯一，形如 IC2026...',
+    station_id                BIGINT       NOT NULL COMMENT '巡检站点',
+    status                    VARCHAR(16)  NOT NULL COMMENT 'OPEN 巡检中 / COMPLETED 已完成',
+    creator_id                BIGINT       NOT NULL COMMENT '建单人',
+    remark                    VARCHAR(255) NULL COMMENT '批次备注',
+    pile_count                INT          NOT NULL COMMENT '建单时桩位总数（快照）',
+    snapshot_occupied_count   INT          NOT NULL COMMENT '建单时占用桩位数（快照）',
+    snapshot_idle_count       INT          NOT NULL COMMENT '建单时空闲桩位数（快照）',
+    snapshot_disabled_count   INT          NOT NULL COMMENT '建单时停用桩位数（快照）',
+    checked_count             INT          NOT NULL COMMENT '已完成检查的桩位数',
+    normal_count              INT          NOT NULL COMMENT '检查正常的桩位数',
+    fault_count               INT          NOT NULL COMMENT '检查发现故障的桩位数',
+    pending_quarantine_count  INT          NOT NULL COMMENT '批次内当前处于待隔离的桩位数',
+    quarantined_count         INT          NOT NULL COMMENT '批次内当前处于已隔离的桩位数',
+    pending_recheck_count     INT          NOT NULL COMMENT '批次内待复验的故障数',
+    finished_at               DATETIME     NULL COMMENT '批次完成时间',
+    created_at                DATETIME     NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_inspection_batch_no (batch_no),
+    KEY idx_inspection_batch_station (station_id),
+    KEY idx_inspection_batch_status (status)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '桩位巡检批次';
+
+-- ---------------------------------------------------------------------------
+-- 巡检批次桩位明细（一桩一行，建单时固化）
+--   检查结果三选一：LOCK 桩锁 / POWER 供电 / COM 通信（normal 时均为 NORMAL_OK）。
+--   item_result：WAITING 待检查 / NORMAL 正常 / FAULT 故障。
+--   处置状态：NONE 无需处置 / PROCESSING 处置中 / FIXED 处置完成待复验 /
+--             RECHECK_PASS 复验通过 / RECHECK_FAIL 复验不通过（回到处置中）。
+--   active_pile_id 是生成列：只要该桩的故障处置还没「复验通过」，它就等于 pile_id；
+--   配唯一索引 → 数据库层面硬保证「同一桩位不能同时存在两条尚未完成的故障处置」。
+--
+--   隔离口径（安全隔离优先）：
+--     空桩故障 → 桩位立刻 QUARANTINED；
+--     有车故障 → 桩位 PENDING_QUARANTINE（不清车辆落点），车可借走/调出，车离桩自动转已隔离。
+-- ---------------------------------------------------------------------------
+CREATE TABLE inspection_item (
+    id                    BIGINT       NOT NULL AUTO_INCREMENT,
+    batch_id              BIGINT       NOT NULL COMMENT '所属巡检批次',
+    pile_id               BIGINT       NOT NULL COMMENT '被巡检桩位（建单时固化）',
+    pile_no               VARCHAR(16)  NOT NULL COMMENT '桩位号快照',
+    snapshot_bike_code    VARCHAR(32)  NULL COMMENT '建单时桩上车辆编号（无车为 NULL）',
+    item_result           VARCHAR(16)  NOT NULL COMMENT 'WAITING 待检查 / NORMAL 正常 / FAULT 故障',
+    lock_result           VARCHAR(16)  NULL COMMENT '桩锁检查：NORMAL_OK 正常 / FAULT_FAIL 故障',
+    power_result          VARCHAR(16)  NULL COMMENT '供电检查：NORMAL_OK / FAULT_FAIL',
+    com_result            VARCHAR(16)  NULL COMMENT '通信检查：NORMAL_OK / FAULT_FAIL',
+    fault_level           VARCHAR(16)  NULL COMMENT '故障等级：LOW 低 / MID 中 / HIGH 高',
+    fault_desc            VARCHAR(255) NULL COMMENT '故障描述',
+    dispose_status        VARCHAR(16)  NOT NULL COMMENT 'NONE / PROCESSING / FIXED / RECHECK_PASS / RECHECK_FAIL',
+    inspector_id          BIGINT       NULL COMMENT '检查人',
+    inspected_at          DATETIME     NULL COMMENT '检查时间',
+    inspect_occupy_note   VARCHAR(255) NULL COMMENT '检查时占用事实与登记不一致的说明（按最新事实隔离的依据）',
+    disposer_id           BIGINT       NULL COMMENT '处置人',
+    dispose_started_at    DATETIME     NULL COMMENT '开始处置时间',
+    dispose_note          VARCHAR(255) NULL COMMENT '处置措施说明',
+    disposed_at           DATETIME     NULL COMMENT '处置完成时间',
+    rechecker_id          BIGINT       NULL COMMENT '复验人',
+    rechecked_at          DATETIME     NULL COMMENT '最近一次复验时间',
+    recheck_result        VARCHAR(16)  NULL COMMENT '最近复验结果：PASS 通过 / FAIL 不通过',
+    recheck_note          VARCHAR(255) NULL COMMENT '复验说明（不通过原因保留在此）',
+    recheck_pass_count    INT          NOT NULL DEFAULT 0 COMMENT '复验通过次数（0 或 1）',
+    recheck_fail_count    INT          NOT NULL DEFAULT 0 COMMENT '复验不通过累计次数',
+    created_at            DATETIME     NOT NULL,
+    updated_at            DATETIME     NULL,
+    active_pile_id        BIGINT GENERATED ALWAYS AS
+                          (IF(dispose_status IN ('PROCESSING', 'FIXED', 'RECHECK_FAIL'), pile_id, NULL)) STORED
+                          COMMENT '生成列：故障处置尚未复验通过时等于 pile_id，配唯一索引禁止同桩两条未完成处置',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_inspection_item (batch_id, pile_id),
+    UNIQUE KEY uk_inspection_active_pile (active_pile_id),
+    KEY idx_inspection_item_batch (batch_id, item_result),
+    KEY idx_inspection_item_pile (pile_id),
+    KEY idx_inspection_item_dispose (dispose_status)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '巡检批次桩位明细';
+
+-- ---------------------------------------------------------------------------
+-- 巡检复验记录：复验动作要留痕，复验不通过的原因在这里逐条保留
+-- ---------------------------------------------------------------------------
+CREATE TABLE inspection_verify_log (
+    id            BIGINT       NOT NULL AUTO_INCREMENT,
+    item_id       BIGINT       NOT NULL COMMENT '对应巡检桩位明细',
+    batch_id      BIGINT       NOT NULL COMMENT '所属巡检批次（冗余便于查询）',
+    pile_id       BIGINT       NOT NULL COMMENT '被复验桩位',
+    result        VARCHAR(16)  NOT NULL COMMENT 'PASS 通过 / FAIL 不通过',
+    note          VARCHAR(255) NULL COMMENT '复验说明 / 不通过原因',
+    operator_id   BIGINT       NOT NULL COMMENT '复验人',
+    pile_restored VARCHAR(24)  NULL COMMENT '复验通过后桩位恢复成的状态：IDLE / OCCUPIED',
+    restored_bike_code VARCHAR(32) NULL COMMENT '复验通过时桩上实际车辆编号（恢复为占用时）',
+    created_at    DATETIME     NOT NULL,
+    PRIMARY KEY (id),
+    KEY idx_verify_log_item (item_id),
+    KEY idx_verify_log_batch (batch_id)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '巡检复验记录';
+
 
 -- ===========================================================================
 -- 种子数据
@@ -369,3 +496,9 @@ INSERT INTO work_order (id, order_no, bike_id, fault_type, level, status, worker
     '2026-09-05 09:00:00', '2026-09-05 10:00:00', '2026-09-04 16:00:00', '2026-09-04 16:30:00', '2026-09-05 09:50:00', '紧固并更换销钉'),
 (5, 'WO20260922005', 1010, '车把转向卡滞',   'MID',  'REPORTED', NULL,
     NULL, NULL, '2026-09-22 09:30:00', NULL, NULL, NULL);
+
+-- ---- 运营人员（模块六桩位巡检：检查人 / 处置人 / 复验人） ------------------
+INSERT INTO operator (id, name, phone, status, created_at) VALUES
+(1, '陈运营', '13900001001', 'ON_DUTY', '2026-07-05 09:00:00'),
+(2, '赵巡检', '13900001002', 'ON_DUTY', '2026-07-05 09:00:00'),
+(3, '孙值班', '13900001003', 'OFF_DUTY', '2026-07-05 09:00:00');

@@ -338,7 +338,7 @@ public class ClearanceService {
             } else {
                 // 自动挑桩也在桩位行锁内挑，避免方案刚存好就被并发还车占走（执行时仍会再锁内重判一次）
                 pile = pileRepository.findByStationIdForUpdate(lockedTarget.getId()).stream()
-                        .filter(p -> !BikeDict.PILE_DISABLED.equals(p.getStatus()))
+                        .filter(p -> BikeDict.PILE_IDLE.equals(p.getStatus()))
                         .filter(p -> bikeRepository.findByPileId(p.getId()).isEmpty())
                         .min(Comparator.comparing(Pile::getId))
                         .orElse(null);
@@ -723,11 +723,14 @@ public class ClearanceService {
                 if (targetPile == null) {
                     return blockItem(item, "计划桩位不属于计划接收站「" + target.getName() + "」");
                 }
-                if (BikeDict.PILE_DISABLED.equals(targetPile.getStatus())
+                boolean pileBlocked = !BikeDict.pileAcceptsBike(targetPile.getStatus());
+                if (pileBlocked
                         || takenPileIds.contains(targetPile.getId())
                         || pileOccupant(targetBikes, targetPile.getId(), bike.getId()) != null) {
-                    String why = BikeDict.PILE_DISABLED.equals(targetPile.getStatus())
-                            ? "计划桩位「" + targetPile.getPileNo() + "」已停用"
+                    String why = pileBlocked
+                            ? "计划桩位「" + targetPile.getPileNo() + "」为「"
+                                    + BikeDict.pileStatusName(targetPile.getStatus())
+                                    + "」状态，不能接收车辆"
                             : "计划桩位「" + targetPile.getPileNo() + "」已被其它车辆占用";
                     if (strict && !alreadyRerouted) {
                         String rerouted = reroute(item, bike, source, lockedStations, pilesByStation, bikesByStation,
@@ -911,7 +914,7 @@ public class ClearanceService {
             List<Pile> piles = pileRepository.findByStationIdOrderByPileNoAsc(s.getId());
             pilesByStation.put(s.getId(), piles);
             long freePiles = piles.stream()
-                    .filter(p -> !BikeDict.PILE_DISABLED.equals(p.getStatus()))
+                    .filter(p -> BikeDict.PILE_IDLE.equals(p.getStatus()))
                     .filter(p -> bikeRepository.findByPileId(p.getId()).isEmpty())
                     .count();
             long bikeCount = bikeRepository.countByStationId(s.getId());
@@ -1033,7 +1036,7 @@ public class ClearanceService {
                 // 空桩口径与全仓一致：bike.pile_id 才是真正的占用关系（一桩一车），
                 // pile.status 只是快照 —— 不能只看 IDLE，否则会把两辆车排到同一个桩上。
                 Pile free = pilesByStation.getOrDefault(s.getId(), List.of()).stream()
-                        .filter(p -> !BikeDict.PILE_DISABLED.equals(p.getStatus()))
+                        .filter(p -> BikeDict.PILE_IDLE.equals(p.getStatus()))
                         .filter(p -> !planPiles.contains(p.getId()))
                         .filter(p -> bikeRepository.findByPileId(p.getId()).isEmpty())
                         .min(Comparator.comparing(Pile::getId))
@@ -1119,7 +1122,7 @@ public class ClearanceService {
             return null;
         }
         return stationPiles.stream()
-                .filter(p -> !BikeDict.PILE_DISABLED.equals(p.getStatus()))
+                .filter(p -> BikeDict.PILE_IDLE.equals(p.getStatus()))
                 .filter(p -> !takenPileIds.contains(p.getId()))
                 .filter(p -> stationBikes.stream().noneMatch(b -> p.getId().equals(b.getPileId())))
                 .min(Comparator.comparing(Pile::getId))
@@ -1199,7 +1202,7 @@ public class ClearanceService {
             List<Pile> piles = pileRepository.findByStationIdOrderByPileNoAsc(s.getId());
             pilesByStation.put(s.getId(), piles);
             long freePiles = piles.stream()
-                    .filter(p -> !BikeDict.PILE_DISABLED.equals(p.getStatus()))
+                    .filter(p -> BikeDict.PILE_IDLE.equals(p.getStatus()))
                     .filter(p -> bikeRepository.findByPileId(p.getId()).isEmpty())
                     .count();
             String faultBlock = BikeDict.STATION_OPEN.equals(s.getStatus())

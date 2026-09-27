@@ -76,4 +76,18 @@ export const clearanceApi = {
   cancel: (id) => http.post(`/clearances/${id}/cancel`)
 }
 
+export const inspectionApi = {
+  operators: () => http.get('/inspections/operators'),
+  list: (params) => http.get('/inspections', { params }),
+  detail: (id) => http.get(`/inspections/${id}`),
+  create: (payload) => http.post('/inspections', payload),
+  check: (id, itemId, payload) => http.post(`/inspections/${id}/items/${itemId}/check`, payload),
+  startDispose: (id, itemId, payload) =>
+    http.post(`/inspections/${id}/items/${itemId}/dispose/start`, payload),
+  finishDispose: (id, itemId, payload) =>
+    http.post(`/inspections/${id}/items/${itemId}/dispose/finish`, payload),
+  recheck: (id, itemId, payload) =>
+    http.post(`/inspections/${id}/items/${itemId}/recheck`, payload)
+}
+
 export default http

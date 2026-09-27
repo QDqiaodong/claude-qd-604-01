@@ -29,7 +29,7 @@
         <el-input
           v-model="keyword"
           class="finder-input"
-          placeholder="输入编号直查：BK-1001 / S001 / R2026… / WO2026… / CS2026…"
+          placeholder="输入编号直查：BK-1001 / S001 / R2026… / WO2026… / CS2026… / IC2026…"
           clearable
           @keyup.enter="doSearch"
         >
@@ -90,7 +90,8 @@ const overviewCards = computed(() => {
       { label: '报废', value: '—' },
       { label: '站点 / 运营中', value: '—' },
       { label: '桩位总数', value: '—' },
-      { label: '骑行中订单', value: '—' },
+      { label: '待隔离 / 已隔离', value: '—' },
+      { label: '待复验故障', value: '—' },
       { label: '清站进行中 / 受阻', value: '—' }
     ]
   }
@@ -102,7 +103,8 @@ const overviewCards = computed(() => {
     { label: '报废', value: s.bikeScrapped },
     { label: '站点 / 运营中', value: `${s.stationTotal} / ${s.stationOpen}` },
     { label: '桩位总数', value: s.pileTotal },
-    { label: '骑行中订单', value: s.rentalRiding },
+    { label: '待隔离 / 已隔离', value: `${s.pilePendingQuarantine} / ${s.pileQuarantined}` },
+    { label: '待复验故障', value: s.inspectionPendingRecheck },
     { label: '清站进行中 / 受阻', value: `${s.clearanceActive} / ${s.clearanceBlocked}` }
   ]
 })
@@ -131,9 +133,11 @@ function doSearch() {
     target = '/rentals'
   } else if (/^CS\d+$/.test(upper)) {
     target = '/clearances'
+  } else if (/^IC\d+$/.test(upper)) {
+    target = '/inspections'
   }
   if (!target) {
-    ElMessage.warning('认不出这个编号，请用 BK-1001（车辆）/ S001（站点）/ R…（订单）/ WO…（工单）/ CS…（清站单）的形式')
+    ElMessage.warning('认不出这个编号，请用 BK-1001（车辆）/ S001（站点）/ R…（订单）/ WO…（工单）/ CS…（清站单）/ IC…（巡检批次）的形式')
     return
   }
   nav.push({ path: target, query: { code: upper } })

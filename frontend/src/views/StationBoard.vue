@@ -19,6 +19,8 @@
       <span class="legend"><i class="dot dot--open"></i>运营中</span>
       <span class="legend"><i class="dot dot--closed"></i>已停用（不能借还、不能调入）</span>
       <span class="legend"><i class="dot dot--disabled"></i>桩位停用</span>
+      <span class="legend"><i class="dot dot--pq"></i>待隔离（车可离开，新车禁入）</span>
+      <span class="legend"><i class="dot dot--q"></i>已隔离（不参与借还/调拨）</span>
       <span class="legend"><i class="dot dot--drag"></i>可拖动</span>
       <span v-if="dragging" class="dragging">
         正在拖 <b>{{ dragging.bikeCode }}</b>（来自 {{ dragging.fromPileNo }}）—— 松手放到目标格子里
@@ -51,6 +53,18 @@
             车辆 {{ st.bikeCount }} / 容量 {{ st.capacity }}
             <em>· 空桩 {{ st.freePileCount }}</em>
           </span>
+        </div>
+
+        <div class="quar-row" v-if="st.pendingQuarantineCount || st.quarantinedCount || st.pendingRecheckCount">
+          <el-tag v-if="st.pendingQuarantineCount" size="small" type="warning" effect="dark" class="q-tag">
+            ⛔ 待隔离 {{ st.pendingQuarantineCount }}
+          </el-tag>
+          <el-tag v-if="st.quarantinedCount" size="small" type="danger" effect="dark" class="q-tag">
+            🚧 已隔离 {{ st.quarantinedCount }}
+          </el-tag>
+          <el-tag v-if="st.pendingRecheckCount" size="small" type="primary" effect="plain" class="q-tag">
+            🔎 待复验 {{ st.pendingRecheckCount }}
+          </el-tag>
         </div>
 
         <div v-if="st.activeClearance || st.lastClearance" class="clearance-row">
@@ -91,13 +105,19 @@
               'pile--idle': pile.status === 'IDLE',
               'pile--occupied': pile.status === 'OCCUPIED',
               'pile--disabled': pile.status === 'DISABLED',
+              'pile--pending-q': pile.status === 'PENDING_QUARANTINE',
+              'pile--quarantined': pile.status === 'QUARANTINED',
               'pile--over': overPileId === pile.id
             }"
             @dragover.prevent="onDragOverPile(pile)"
             @dragleave="onDragLeavePile(pile)"
             @drop.prevent="dropOnPile(st, pile)"
           >
-            <span class="pile-no">{{ pile.pileNo }}</span>
+            <span class="pile-no">
+              {{ pile.pileNo }}
+              <i v-if="pile.status === 'PENDING_QUARANTINE'" class="pile-flag pile-flag--pq">待隔离</i>
+              <i v-else-if="pile.status === 'QUARANTINED'" class="pile-flag pile-flag--q">已隔离</i>
+            </span>
 
             <div
               v-if="pile.bikeId"
@@ -113,11 +133,13 @@
             </div>
 
             <span v-else-if="pile.status === 'DISABLED'" class="pile-empty">桩位停用</span>
+            <span v-else-if="pile.status === 'QUARANTINED'" class="pile-empty">故障隔离中</span>
             <span v-else class="pile-empty">空桩</span>
           </div>
         </div>
 
         <footer class="st-foot">
+          <el-button size="small" type="primary" plain @click="goInspection(st)">巡检建批</el-button>
           <el-button size="small" @click="addPile(st)">加桩位</el-button>
           <el-button size="small" @click="changeCapacity(st)">改容量</el-button>
           <el-button
@@ -203,7 +225,8 @@ const otherPiles = computed(() => {
   for (const st of stations.value) {
     if (st.status !== 'OPEN') continue
     for (const p of st.piles) {
-      if (p.status === 'DISABLED') continue
+      // 只有真正空闲的桩位才能接收车辆：停用、待隔离、已隔离都不列出
+      if (p.status !== 'IDLE') continue
       if (p.id === picked.value.pileId) continue
       if (p.bikeId && p.bikeId !== picked.value.bikeId) continue
       out.push({ id: p.id, pileNo: p.pileNo, stationName: st.name })
@@ -220,6 +243,11 @@ function capPercent(st) {
 /** 跳到应急清站模块并打开对应清站单 */
 function goClearance(id) {
   nav.push({ path: '/clearances', query: { id: String(id) } })
+}
+
+/** 跳到桩位巡检模块并带上该站点（直接可建批） */
+function goInspection(st) {
+  nav.push({ path: '/inspections', query: { stationId: String(st.id) } })
 }
 
 async function load() {
@@ -272,6 +300,10 @@ async function dropOnPile(st, pile) {
   if (!moving) return
   if (pile.status === 'DISABLED') {
     ElMessage.warning(`桩位 ${pile.pileNo} 已停用，不能放车`)
+    return
+  }
+  if (pile.status === 'PENDING_QUARANTINE' || pile.status === 'QUARANTINED') {
+    ElMessage.warning(`桩位 ${pile.pileNo} 处于「${pile.status === 'PENDING_QUARANTINE' ? '待隔离' : '已隔离'}」，故障桩不接收新车`)
     return
   }
   await doTransfer(moving.bikeId, pile.id)
@@ -472,6 +504,8 @@ onMounted(load)
 .dot--open { background: var(--el-color-primary); }
 .dot--closed { background: #b6bdb0; }
 .dot--disabled { background: #d9534f; }
+.dot--pq { background: #e6a23c; }
+.dot--q { background: #c0392b; }
 .dot--drag { background: #4a7fb5; }
 
 .dragging {
@@ -622,6 +656,51 @@ onMounted(load)
 .pile--disabled {
   border-color: #e6b3b1;
   background: #fdf3f3;
+}
+
+/* 待隔离：橙；桩上的车仍可拖走/借走，但新车进不来（拖拽落点处会被前后端一起拦） */
+.pile--pending-q {
+  border-style: solid;
+  border-color: #e6a23c;
+  background: #fdf6ec;
+}
+
+/* 已隔离：红底斜纹，明确不参与借还/调拨 */
+.pile--quarantined {
+  border-style: solid;
+  border-color: #c0392b;
+  background:
+    repeating-linear-gradient(45deg, #fdecea 0, #fdecea 8px, #fff 8px, #fff 16px);
+}
+
+.pile-flag {
+  font-style: normal;
+  font-size: 9px;
+  border-radius: 4px;
+  padding: 0 4px;
+  margin-left: 2px;
+  vertical-align: 1px;
+}
+
+.pile-flag--pq {
+  background: #e6a23c;
+  color: #fff;
+}
+
+.pile-flag--q {
+  background: #c0392b;
+  color: #fff;
+}
+
+.quar-row {
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.q-tag {
+  cursor: default;
 }
 
 .pile--over {

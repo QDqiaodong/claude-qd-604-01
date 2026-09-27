@@ -43,7 +43,12 @@
             :class="{ 'loan-card--focus': bike.code === focusCode }"
           >
             <div class="lc-main">
-              <div class="lc-code">{{ bike.code }}</div>
+              <div class="lc-code">
+                {{ bike.code }}
+                <el-tag v-if="bike.pileStatus === 'PENDING_QUARANTINE'" size="small" type="warning" effect="dark" class="pq-tag">
+                  桩位待隔离·车可借
+                </el-tag>
+              </div>
               <div class="lc-where">{{ bike.stationName }} · {{ bike.pileNo }}</div>
               <div class="lc-model">{{ bike.model }} · 累计 {{ bike.totalRides }} 次</div>
             </div>
@@ -194,6 +199,17 @@ const currentUser = computed(() => users.value.find((u) => u.id === currentUserI
 const pileBikes = computed(() =>
   bikes.value
     .filter((b) => b.status === 'PILE' && b.pileId)
+    .map((b) => {
+      let pileStatus = null
+      for (const st of stations.value) {
+        const p = st.piles.find((x) => x.id === b.pileId)
+        if (p) {
+          pileStatus = p.status
+          break
+        }
+      }
+      return { ...b, pileStatus }
+    })
     .sort((a, b) => (a.code > b.code ? 1 : -1))
 )
 
@@ -202,6 +218,7 @@ const freePiles = computed(() => {
   for (const st of stations.value) {
     if (st.status !== 'OPEN') continue
     for (const p of st.piles) {
+      // 还车只能落到「空闲且无车」的桩位：停用、待隔离、已隔离桩都由后端拒绝，这里直接不列出
       if (p.status === 'IDLE' && !p.bikeId) {
         out.push({ pileId: p.id, pileNo: p.pileNo, stationName: st.name })
       }
@@ -435,6 +452,14 @@ onMounted(load)
   font-size: 14px;
   font-weight: 700;
   color: #2f3b22;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pq-tag {
+  font-weight: 400;
 }
 
 .lc-where {

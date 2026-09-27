@@ -53,6 +53,12 @@ public final class Views {
             String statusName,
             long bikeCount,
             long freePileCount,
+            /** 模块六：站内待隔离桩位数（桩上有车，车可离开但新车进不来） */
+            long pendingQuarantineCount,
+            /** 模块六：站内已隔离桩位数（空桩，不参与借还/调拨） */
+            long quarantinedCount,
+            /** 模块六：站内待复验的故障处置数（处置完成，等待复验恢复） */
+            long pendingRecheckCount,
             List<PileView> piles,
             /** 正在清站（待执行/执行中/部分受阻）时非空，站点看板显示「正在清站 · 受阻 N」 */
             ClearanceBadge activeClearance,
@@ -169,7 +175,15 @@ public final class Views {
             /** 正在清站（待执行/执行中/部分受阻）的清站单数 */
             long clearanceActive,
             /** 其中「部分受阻」的清站单数 */
-            long clearanceBlocked) {
+            long clearanceBlocked,
+            /** 模块六：待隔离桩位数 */
+            long pilePendingQuarantine,
+            /** 模块六：已隔离桩位数 */
+            long pileQuarantined,
+            /** 模块六：巡检中批次数 */
+            long inspectionOpen,
+            /** 模块六：待复验的故障处置数 */
+            long inspectionPendingRecheck) {
     }
 
     // ------------------------------------------------------------------
@@ -289,5 +303,144 @@ public final class Views {
             long ridingRentals,
             long openWorkOrders,
             long occupiedPiles) {
+    }
+
+    // ------------------------------------------------------------------
+    // 模块六：桩位巡检
+    // ------------------------------------------------------------------
+
+    /** 运营人员（检查人 / 处置人 / 复验人） */
+    public record OperatorView(
+            Long id,
+            String name,
+            String phone,
+            String status,
+            String statusName) {
+    }
+
+    /** 复验记录（复验动作留痕，复验不通过原因逐条保留） */
+    public record VerifyLogView(
+            Long id,
+            String result,
+            String resultName,
+            String note,
+            Long operatorId,
+            String operatorName,
+            String pileRestored,
+            String pileRestoredName,
+            String restoredBikeCode,
+            LocalDateTime createdAt) {
+    }
+
+    /** 巡检批次中的一个桩位（带检查/处置/复验全部信息与实时占车情况） */
+    public record InspectionItemView(
+            Long id,
+            Long pileId,
+            String pileNo,
+            /** 建单时桩上车辆编号快照 */
+            String snapshotBikeCode,
+            String itemResult,
+            String itemResultName,
+            String lockResult,
+            String lockResultName,
+            String powerResult,
+            String powerResultName,
+            String comResult,
+            String comResultName,
+            String faultLevel,
+            String faultLevelName,
+            String faultDesc,
+            String disposeStatus,
+            String disposeStatusName,
+            Long inspectorId,
+            String inspectorName,
+            LocalDateTime inspectedAt,
+            /** 检查时登记占用与最新事实不一致的说明 */
+            String inspectOccupyNote,
+            Long disposerId,
+            String disposerName,
+            LocalDateTime disposeStartedAt,
+            String disposeNote,
+            LocalDateTime disposedAt,
+            Long recheckerId,
+            String recheckerName,
+            LocalDateTime recheckedAt,
+            String recheckResult,
+            String recheckResultName,
+            String recheckNote,
+            int recheckPassCount,
+            int recheckFailCount,
+            /** 桩位实时状态（IDLE/OCCUPIED/PENDING_QUARANTINE/QUARANTINED/DISABLED） */
+            String pileStatus,
+            String pileStatusName,
+            /** 桩位实时占用车辆（复验按真实占车恢复，页面不能手工指定） */
+            Long currentBikeId,
+            String currentBikeCode,
+            /** 历次复验记录（复验不通过原因逐条保留） */
+            List<VerifyLogView> verifyLogs) {
+    }
+
+    /** 巡检批次列表项 */
+    public record InspectionBatchListItem(
+            Long id,
+            String batchNo,
+            Long stationId,
+            String stationCode,
+            String stationName,
+            String status,
+            String statusName,
+            Long creatorId,
+            String creatorName,
+            String remark,
+            int pileCount,
+            int checkedCount,
+            int normalCount,
+            int faultCount,
+            int pendingQuarantineCount,
+            int quarantinedCount,
+            int pendingRecheckCount,
+            int snapshotOccupiedCount,
+            int snapshotIdleCount,
+            int snapshotDisabledCount,
+            LocalDateTime finishedAt,
+            LocalDateTime createdAt) {
+    }
+
+    /** 巡检批次详情（逐桩明细 + 复验记录） */
+    public record InspectionBatchView(
+            Long id,
+            String batchNo,
+            Long stationId,
+            String stationCode,
+            String stationName,
+            String stationStatus,
+            String status,
+            String statusName,
+            Long creatorId,
+            String creatorName,
+            String remark,
+            int pileCount,
+            int checkedCount,
+            int normalCount,
+            int faultCount,
+            int pendingQuarantineCount,
+            int quarantinedCount,
+            int pendingRecheckCount,
+            int snapshotOccupiedCount,
+            int snapshotIdleCount,
+            int snapshotDisabledCount,
+            LocalDateTime finishedAt,
+            LocalDateTime createdAt,
+            List<InspectionItemView> items) {
+    }
+
+    /** 复验动作结果：带明确结论、恢复后的桩位状态与真实占用车辆 */
+    public record RecheckOutcome(
+            boolean passed,
+            String message,
+            String pileStatus,
+            String pileStatusName,
+            String currentBikeCode,
+            InspectionBatchView batch) {
     }
 }
